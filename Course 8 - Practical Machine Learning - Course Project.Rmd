@@ -1,0 +1,131 @@
+---
+title: "Course 8 - Practical Machine Learning Course Project"
+author: "J. Carson"
+date: "August 9, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Course 8: Practical Machine Learning Course Project
+- John Hopkins Data Science Specialization
+- Jim Carson 08/09/2017
+
+# Executive Summary
+Given data from accelerometers placed on the belt, forearm, arm, and dumbell of 6 participants, goal of the modeling project is to predict the quality of exercise movement.  In particular, the goal is to predict 'classe' variable 
+
+
+# Clear the workspace and load libraries
+
+```{r echo=TRUE}
+rm(list = ls())
+library(caret)
+library(AppliedPredictiveModeling)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+library(randomForest)
+```
+
+# Set the working directory and read in the data
+
+```{r echo=TRUE}
+setwd("~/R/Data")
+pml_training <- read.csv("pml-training.csv", sep=",", header=TRUE, na.strings = c("NA","",'#DIV/0!'))
+pml_testing <- read.csv("pml-testing.csv", sep=",", header=TRUE, na.strings = c("NA","",'#DIV/0!'))
+pml_training <- as.data.frame(pml_training)
+pml_testing <- as.data.frame(pml_testing)
+```
+
+# Examine the data
+
+```{r echo=TRUE}
+# str(pml_training)
+# str(pml_testing)
+# head(pml_training)
+# head(pml_testing)
+summary(pml_training$classe)
+# summary(pml_testing$classe)
+which(colnames(pml_training) == "classe") # column 160 has 'classe' variable
+```
+
+# Clean the training data
+Step 1: Remove empty columns
+
+```{r echo=TRUE}
+pml_training <- pml_training[,(colSums(is.na(pml_training)) == 0)]
+pml_testing <- pml_testing[,(colSums(is.na(pml_testing)) == 0)]
+dim(pml_training)
+dim(pml_testing)
+```
+
+Step 2: Remove values that are close to zero
+
+```{r echo=TRUE}
+nzv_pml_training <- nearZeroVar(pml_training,saveMetrics=TRUE)
+pml_training <- pml_training[,nzv_pml_training$nzv==FALSE]
+nzv_pml_testing <- nearZeroVar(pml_testing,saveMetrics=TRUE)
+pml_testing <- pml_testing[,nzv_pml_testing$nzv==FALSE]
+dim(pml_training)
+dim(pml_testing)
+```
+
+# Partition the pml_training set into training (60%) and testing (40%) sets
+
+```{r echo=TRUE}
+inTrain <- createDataPartition(y=pml_training$classe, p=0.6, list=FALSE)
+my_train <- pml_training[inTrain, ]
+my_test <- pml_training[-inTrain, ]
+dim(my_train)
+dim(my_test)
+```
+
+# Modeling
+Start modeling with a basic classification tree
+
+```{r echo=TRUE}
+tree_model <- rpart(classe ~ ., data = my_train, method = "class")
+fancyRpartPlot(tree_model)
+pred_tree_model <- predict(tree_model, my_test, type = "class")
+confusionMatrix(pred_tree_model, my_test$classe)
+1 - postResample(my_test$classe, pred_tree_model)[[1]] # out of sample accuracy
+```
+
+Try a random forest model
+
+```{r echo=TRUE}
+rf_model1 <- randomForest(classe ~ ., data = my_train)
+rf_model1
+pred_rf_model1 <- predict(rf_model1, my_test, type = "class")
+confusionMatrix(pred_rf_model1, my_test$classe)
+1 - postResample(my_test$classe, pred_rf_model1)[[1]] # out of sample accuracy
+```
+
+Compare to alternate random forest method
+
+```{r echo=TRUE}
+rf_model2 <- train(classe ~.,  data = my_train, method = "rf", prox = TRUE, ntree = 10)
+rf_model2
+pred_rf_model2 <- predict(rf_model2, my_test, type = "raw")
+confusionMatrix(pred_rf_model2, my_test$classe)
+1 - postResample(my_test$classe, pred_rf_model2)[[1]] # out of sample accuracy
+```
+
+The high accuracy of the random forest models leads to suspicion of overfitting.  Use k-fold cross-validation to prevent overfitting.
+
+```{r echo=TRUE}
+rf_cv_model <- train(classe ~ ., method = "rf", data = my_train, trControl = trainControl(method='cv'), number = 10, allowParallel = TRUE, importance = TRUE)
+rf_cv_model
+pred_rf_cv_model <- predict(rf_cv_model, my_test, type = "raw")
+confusionMatrix(pred_rf_cv_model, my_test$classe)
+1 - postResample(my_test$classe, pred_rf_cv_model)[[1]] # out of sample accuracy
+```
+
+# Compute prediction using test data
+
+```{r echo=TRUE}
+prediction_final_test <- predict(rf_cv_model, pml_testing, type = "raw")
+prediction_final_test
+```
